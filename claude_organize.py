@@ -153,6 +153,8 @@ def parse_session(path: Path) -> dict | None:
         "uuids": [],  # sıralı mesaj uuid'leri (fork tespiti için)
         "prompts": [],  # (uuid sırası, istek metni)
         "fork_hint": None,  # jsonl içinde açıkça yazıyorsa
+        "ctx_tokens": 0,  # son cevaptaki context büyüklüğü
+        "model": None,
     }
     files: dict[str, None] = {}
 
@@ -213,6 +215,15 @@ def parse_session(path: Path) -> dict | None:
                     s["prompts"].append((len(s["uuids"]) - 1, _clean(text, 160)))
             else:
                 s["n_assistant"] += 1
+                usage = msg.get("usage") or {}
+                ctx = sum(
+                    int(usage.get(k) or 0)
+                    for k in ("input_tokens", "cache_read_input_tokens",
+                              "cache_creation_input_tokens", "output_tokens")
+                )
+                if ctx:
+                    s["ctx_tokens"] = ctx
+                s["model"] = msg.get("model") or s["model"]
                 text = _text_of(content)
                 if text.strip():
                     s["last_reply"] = _clean(text, 600)
@@ -344,6 +355,14 @@ def _decode_project(name: str) -> str:
 def public(s: dict) -> dict:
     d = {k: v for k, v in s.items() if k not in ("uuids", "file", "prompts")}
     d["n_messages"] = len(s["uuids"])
+    try:
+        d["mtime"] = Path(s["file"]).stat().st_mtime
+    except OSError:
+        d["mtime"] = s["last_ts"]
+    # dosya son ~90 sn içinde yazıldıysa Claude büyük ihtimalle şu an çalışıyor
+    d["working"] = time.time() - d["mtime"] < 90
+    limit = 1_000_000 if ("[1m]" in (s["model"] or "") or s["ctx_tokens"] > 200_000) else 200_000
+    d["ctx_pct"] = min(100, round(100 * s["ctx_tokens"] / limit)) if s["ctx_tokens"] else None
     return d
 
 
@@ -505,127 +524,126 @@ INDEX_HTML = r"""<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Claude Organize</title>
 <style>
-:root{--bg:#1f1e1d;--panel:#2a2927;--panel2:#33312e;--fg:#ece9e4;--dim:#9b968f;--acc:#d97757;
---line:#45423e;--ok:#6fbf73;--try:#c49af5;--wait:#e2b24a;--trash:#777}
-@media (prefers-color-scheme: light){:root{--bg:#f6f4ef;--panel:#fff;--panel2:#efece6;--fg:#24221f;--dim:#6f6a63;--line:#ddd8cf}}
+:root{--bg:#faf9f6;--fg:#24221f;--dim:#8a857d;--line:#ebe8e2;--hover:#f1eee8;--acc:#d97757;--note:#a8741a;--bar:#e4e0d8;--ok:#5a9e5e;--warn:#d9a03a;--bad:#d0533f}
+@media (prefers-color-scheme:dark){:root{--bg:#1f1e1d;--fg:#ece9e4;--dim:#8f8a83;--line:#33312e;--hover:#2a2927;--note:#e2b24a;--bar:#3a3835}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-header{position:sticky;top:0;z-index:2;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-header h1{font-size:16px;margin:0 12px 0 0}
-input,select,textarea,button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
-input[type=search]{flex:1;min-width:180px}
-button{cursor:pointer}button:hover{border-color:var(--acc)}
-main{padding:16px 20px;max-width:1100px;margin:auto}
-.proj{margin:22px 0 8px;color:var(--dim);font-weight:600;font-size:13px;word-break:break-all}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:6px 0;position:relative}
-.card.fresh{border-left:3px solid var(--acc)}
-.kids{margin-left:22px;border-left:1px solid var(--line);padding-left:12px}
-.row{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
-.title{font-weight:600;font-size:15px;cursor:pointer}
-.meta{color:var(--dim);font-size:12px}
-.badge{font-size:11px;padding:1px 7px;border-radius:99px;background:var(--panel2);color:var(--dim)}
-.fork{color:var(--try)}
-.note{margin:6px 0 2px;padding:6px 10px;background:var(--panel2);border-radius:6px;color:var(--wait);white-space:pre-wrap}
-.detail{display:none;margin-top:8px;font-size:13px}
-.card.open>.detail{display:block}
-.detail .lbl{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-top:8px}
-.detail code{font-size:12px;background:var(--panel2);padding:2px 6px;border-radius:4px;word-break:break-all}
-.edit{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
-.edit textarea{flex:1;min-width:200px;min-height:38px}
-.st-aktif{color:var(--ok)}.st-deneme{color:var(--try)}.st-beklemede{color:var(--wait)}.st-bitti{color:var(--ok)}.st-cop{color:var(--trash)}
-.card.st-cop,.card.st-bitti{opacity:.55}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:28px 20px 60px}
+.top{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+.top h1{font-size:17px;margin:0;font-weight:600;white-space:nowrap}
+#q{flex:1;min-width:0;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:8px;padding:7px 11px}
+.proj{margin:26px 0 4px;font-size:12px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+.row{display:grid;grid-template-columns:18px 1fr auto auto 26px;align-items:center;gap:12px;padding:7px 8px;border-radius:7px;cursor:pointer}
+.row:hover{background:var(--hover)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim);opacity:.45;justify-self:center}
+.dot.fresh{background:var(--acc);opacity:1}
+.dot.working{background:var(--acc);opacity:1;animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{50%{transform:scale(1.7);opacity:.35}}
+.name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.name .fk{color:var(--dim);margin-right:4px}
+.name .nt{color:var(--note);margin-left:8px;font-size:13px}
+.name .wk{color:var(--acc);margin-left:8px;font-size:12px;font-weight:600}
+.ctx{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums;width:74px}
+.ctx i{display:block;width:38px;height:4px;border-radius:2px;background:var(--bar);overflow:hidden}
+.ctx b{display:block;height:100%;background:var(--ok)}
+.ctx.w b{background:var(--warn)}.ctx.x b{background:var(--bad)}.ctx.x{color:var(--bad)}
+.when{font-size:13px;color:var(--dim);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:96px}
+.act{opacity:0;border:0;background:none;color:var(--dim);cursor:pointer;font-size:15px;padding:0}
+.row:hover .act{opacity:1}.act:hover{color:var(--fg)}
+.edit{grid-column:2/-1;display:flex;gap:6px}
+.edit input{flex:1;font:inherit;font-size:14px;color:inherit;background:var(--bg);border:1px solid var(--acc);border-radius:6px;padding:5px 9px}
+.edit button{font:inherit;font-size:13px;border:1px solid var(--line);background:none;color:inherit;border-radius:6px;padding:0 10px;cursor:pointer}
+.done-toggle{margin-top:34px;font-size:13px;color:var(--dim);cursor:pointer;background:none;border:0;padding:0}
+.done .row{opacity:.5}
 .empty{color:var(--dim);text-align:center;margin-top:60px}
-.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--acc);color:#fff;padding:8px 16px;border-radius:8px;display:none}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:8px;font-size:14px;display:none}
+.hint{font-size:12px;color:var(--dim);margin-top:2px}
+@media (max-width:560px){.row{grid-template-columns:14px 1fr auto 22px}.ctx{display:none}.when{min-width:0}}
 </style></head><body>
-<header>
-  <h1>🗂 Claude Organize</h1>
-  <input type="search" id="q" placeholder="Ara: başlık, not, istek, dosya…">
-  <select id="fst">
-    <option value="open">Açık işler</option><option value="">Hepsi</option>
-    <option value="aktif">🟢 aktif</option><option value="deneme">🧪 deneme</option>
-    <option value="beklemede">⏸️ beklemede</option><option value="bitti">✅ bitti</option><option value="cop">🗑️ çöp</option>
-  </select>
-  <select id="view"><option value="tree">Ağaç (fork'lar)</option><option value="recent">Son kullanılan</option></select>
-  <button id="reload">↻</button>
-</header>
-<main id="out"></main>
+<main>
+  <div class="top"><h1>🗂 Claude Organize</h1><input type="search" id="q" placeholder="Ara…"></div>
+  <div class="hint">Satıra tıkla → devam komutu kopyalanır, Terminal'e yapıştır. ✎ not yaz · ✓ bitti</div>
+  <div id="out"></div>
+  <button class="done-toggle" id="dt"></button>
+  <div id="done" class="done"></div>
+</main>
 <div class="toast" id="toast"></div>
 <script>
-const ICON={aktif:"🟢",deneme:"🧪",beklemede:"⏸️",bitti:"✅",cop:"🗑️","":""};
-let DATA=[],openIds=new Set(JSON.parse(localStorage.getItem("open")||"[]"));
+let DATA=[],editing=null,showDone=false;
 const $=s=>document.querySelector(s);
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-function ago(t){if(!t)return"?";const d=Date.now()/1000-t;
- if(d<60)return"az önce";if(d<3600)return Math.floor(d/60)+" dk önce";
- if(d<86400)return Math.floor(d/3600)+" sa önce";return Math.floor(d/86400)+" gün önce";}
-function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";setTimeout(()=>t.style.display="none",1600)}
-async function load(){DATA=await (await fetch("/api/sessions")).json();render()}
-function match(s){
-  const f=$("#fst").value;
-  if(f==="open"&&(s.status==="bitti"||s.status==="cop"))return false;
-  if(f&&f!=="open"&&s.status!==f)return false;
-  const q=$("#q").value.toLowerCase().trim();if(!q)return true;
-  return [s.display,s.note,s.first_prompt,s.last_prompt,s.summary,s.branch,s.project,s.id,(s.files||[]).join(" ")]
-    .join(" ").toLowerCase().includes(q);
+const GUN=["Paz","Pzt","Sal","Çar","Per","Cum","Cmt"],AY=["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"];
+function when(t){
+  const d=new Date(t*1000),now=new Date(),hm=d.toTimeString().slice(0,5);
+  const day=x=>new Date(x.getFullYear(),x.getMonth(),x.getDate());
+  const diff=Math.round((day(now)-day(d))/864e5),sec=now/1000-t;
+  const rel=sec<60?"az önce":sec<3600?Math.floor(sec/60)+" dk":"";
+  if(diff===0)return rel?`${rel} · ${hm}`:`Bugün ${hm}`;
+  if(diff===1)return`Dün ${hm}`;
+  if(diff<7)return`${GUN[d.getDay()]} ${hm}`;
+  return`${d.getDate()} ${AY[d.getMonth()]}`;
 }
-function card(s,kidsHtml){
-  const fresh=(Date.now()/1000-s.last_ts)<3600;
-  const parent=s.parent?DATA.find(x=>x.id===s.parent):null;
-  return `<div class="card st-${s.status} ${fresh?"fresh":""} ${openIds.has(s.id)?"open":""}" data-id="${s.id}">
-   <div class="row">
-     <span class="title st-${s.status}" data-toggle>${ICON[s.status]||""} ${esc(s.display)}</span>
-     ${s.parent?`<span class="badge fork">⑂ fork${parent?": "+esc(parent.display.slice(0,30)):""}</span>`:""}
-     ${s.branch?`<span class="badge">⎇ ${esc(s.branch)}</span>`:""}
-     <span class="meta">${ago(s.last_ts)} · ${s.n_user} istek</span>
-   </div>
-   ${s.note?`<div class="note">📝 ${esc(s.note)}</div>`:""}
-   <div class="detail">
-     ${s.first_prompt?`<div class="lbl">İlk istek</div><div>${esc(s.first_prompt)}</div>`:""}
-     ${s.last_prompt&&s.last_prompt!==s.first_prompt?`<div class="lbl">Son istek</div><div>${esc(s.last_prompt)}</div>`:""}
-     ${s.last_reply?`<div class="lbl">Claude'un son cevabı</div><div>${esc(s.last_reply)}</div>`:""}
-     ${s.files&&s.files.length?`<div class="lbl">Dokunulan dosyalar</div><div>${s.files.map(f=>`<code>${esc(f)}</code>`).join(" ")}</div>`:""}
-     <div class="lbl">Devam etmek için</div>
-     <div><code>${esc(s.resume)}</code> <button data-copy="${esc(s.resume)}">kopyala</button></div>
-     <div class="edit">
-       <input data-f="label" placeholder="Kısa isim (opsiyonel)" value="${esc(s.label)}">
-       <textarea data-f="note" placeholder="Burada ne yapıyordum? Sıradaki adım ne?">${esc(s.note)}</textarea>
-       <select data-f="status">${Object.keys(ICON).map(k=>`<option value="${k}" ${k===s.status?"selected":""}>${k?ICON[k]+" "+k:"— durum —"}</option>`).join("")}</select>
-       <button data-save>Kaydet</button>
-     </div>
-     <div class="meta" style="margin-top:6px">${s.id}</div>
-   </div>
-   ${kidsHtml?`<div class="kids">${kidsHtml}</div>`:""}
+function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",1800)}
+async function load(){if(editing)return;DATA=await (await fetch("/api/sessions")).json();render()}
+async function save(id,body){await fetch("/api/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,...body})});editing=null;await load()}
+const short=p=>(p||"").split("/").filter(Boolean).pop()||p;
+function row(s,depth){
+  const t=s.mtime||s.last_ts,fresh=Date.now()/1000-t<3600;
+  const c=s.ctx_pct;
+  const ctx=c==null?`<span class="ctx"></span>`:`<span class="ctx ${c>=80?"x":c>=60?"w":""}" title="Sohbet hafızasının (context) doluluğu"><i><b style="width:${c}%"></b></i>%${c}</span>`;
+  if(editing===s.id)return`<div class="row" data-id="${s.id}" style="cursor:default"><span class="dot"></span>
+    <div class="edit"><input id="ed" value="${esc(s.note)}" placeholder="Burada ne yapıyordum? Sıradaki adım?"><button data-save>Kaydet</button></div></div>`;
+  return`<div class="row" data-id="${s.id}" title="${esc(s.project)}">
+    <span class="dot ${s.working?"working":fresh?"fresh":""}"></span>
+    <span class="name" style="padding-left:${depth*20}px">${depth?'<span class="fk">└</span>':""}${esc(s.display)}${s.working?'<span class="wk">çalışıyor…</span>':""}${s.note?`<span class="nt">📝 ${esc(s.note)}</span>`:""}</span>
+    ${ctx}<span class="when">${when(t)}</span>
+    <button class="act" data-${s.status==="bitti"||s.status==="cop"?"undo":"menu"} title="${s.status==="bitti"?"geri al":"not / bitti"}">${s.status==="bitti"||s.status==="cop"?"↺":"✎"}</button>
   </div>`;
 }
+function tree(list){
+  const ids=new Set(list.map(s=>s.id)),kids={};
+  list.forEach(s=>{const p=ids.has(s.parent)?s.parent:null;(kids[p]=kids[p]||[]).push(s)});
+  const T=s=>s.mtime||s.last_ts,last=s=>Math.max(T(s),...(kids[s.id]||[]).map(last));
+  const walk=(s,d)=>row(s,d)+(kids[s.id]||[]).sort((a,b)=>last(b)-last(a)).map(k=>walk(k,d+1)).join("");
+  const g={};(kids[null]||[]).forEach(s=>(g[s.project]=g[s.project]||[]).push(s));
+  return Object.entries(g).sort((a,b)=>Math.max(...b[1].map(last))-Math.max(...a[1].map(last)))
+    .map(([p,r])=>`<div class="proj" title="${esc(p)}">${esc(short(p))}</div>`+r.sort((a,b)=>last(b)-last(a)).map(s=>walk(s,0)).join("")).join("");
+}
 function render(){
-  const shown=DATA.filter(match),ids=new Set(shown.map(s=>s.id));
-  let html="";
-  if(!shown.length){$("#out").innerHTML=`<div class="empty">Sohbet yok.</div>`;return}
-  if($("#view").value==="recent"){html=shown.map(s=>`<div class="proj">${esc(s.project)}</div>`+card(s,"")).join("")}
-  else{
-    const kids={};shown.forEach(s=>{const p=ids.has(s.parent)?s.parent:null;(kids[p]=kids[p]||[]).push(s)});
-    const lastOf=s=>Math.max(s.last_ts,...(kids[s.id]||[]).map(lastOf));
-    const walk=s=>card(s,(kids[s.id]||[]).sort((a,b)=>lastOf(b)-lastOf(a)).map(walk).join(""));
-    const groups={};(kids[null]||[]).forEach(s=>(groups[s.project]=groups[s.project]||[]).push(s));
-    Object.entries(groups).sort((a,b)=>Math.max(...b[1].map(lastOf))-Math.max(...a[1].map(lastOf)))
-      .forEach(([p,roots])=>{html+=`<div class="proj">📁 ${esc(p)}</div>`+roots.sort((a,b)=>lastOf(b)-lastOf(a)).map(walk).join("")});
-  }
-  $("#out").innerHTML=html;
+  const q=$("#q").value.toLowerCase().trim();
+  const m=s=>!q||[s.display,s.note,s.project,s.first_prompt,s.last_prompt].join(" ").toLowerCase().includes(q);
+  const isDone=s=>s.status==="bitti"||s.status==="cop";
+  const open=DATA.filter(s=>!isDone(s)&&m(s)),done=DATA.filter(s=>isDone(s)&&m(s));
+  $("#out").innerHTML=open.length?tree(open):`<div class="empty">Sohbet yok.</div>`;
+  $("#dt").textContent=done.length?(showDone?"▾ ":"▸ ")+`Bitenler (${done.length})`:"";
+  $("#done").innerHTML=showDone?tree(done):"";
+  const ed=$("#ed");if(ed){ed.focus();ed.setSelectionRange(ed.value.length,ed.value.length)}
 }
 document.addEventListener("click",async e=>{
-  const c=e.target.closest(".card");
-  if(e.target.matches("[data-toggle]")){c.classList.toggle("open");
-    c.classList.contains("open")?openIds.add(c.dataset.id):openIds.delete(c.dataset.id);
-    localStorage.setItem("open",JSON.stringify([...openIds]));}
-  if(e.target.matches("[data-copy]")){await navigator.clipboard.writeText(e.target.dataset.copy);toast("Kopyalandı — terminale yapıştır")}
-  if(e.target.matches("[data-save]")){
-    const body={id:c.dataset.id};c.querySelectorAll(":scope>.detail [data-f]").forEach(el=>body[el.dataset.f]=el.value);
-    await fetch("/api/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-    toast("Kaydedildi");load();}
+  const r=e.target.closest(".row");if(!r)return;const id=r.dataset.id,s=DATA.find(x=>x.id===id);
+  if(e.target.matches("[data-save]"))return save(id,{note:$("#ed").value});
+  if(e.target.closest(".edit"))return;
+  if(e.target.matches("[data-undo]"))return save(id,{status:""});
+  if(e.target.matches("[data-menu]")){
+    const old=document.querySelector(".menu");if(old)old.remove();
+    const m=document.createElement("div");m.className="menu";
+    m.style.cssText=`position:absolute;z-index:5;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:4px;box-shadow:0 6px 20px #0003;font-size:14px`;
+    m.innerHTML=`<div data-a="note" style="padding:6px 12px;cursor:pointer">✎ Not yaz</div><div data-a="done" style="padding:6px 12px;cursor:pointer">✓ Bitti olarak işaretle</div>`;
+    const b=e.target.getBoundingClientRect();m.style.top=(scrollY+b.bottom+4)+"px";m.style.left=Math.max(8,b.right-200)+"px";
+    m.onclick=ev=>{const a=ev.target.dataset.a;m.remove();if(a==="note"){editing=id;render()}if(a==="done")save(id,{status:"bitti"})};
+    document.body.appendChild(m);e.stopPropagation();return;
+  }
+  await navigator.clipboard.writeText(s.resume);toast("Kopyalandı — Terminal'e yapıştır");
 });
-["#q","#fst","#view"].forEach(s=>$(s).addEventListener("input",render));
-$("#reload").onclick=load;
-load();setInterval(()=>{if(!document.activeElement.matches("textarea,input"))load()},15000);
+document.addEventListener("click",e=>{if(!e.target.closest(".menu,[data-menu]")){const m=document.querySelector(".menu");if(m)m.remove()}},true);
+document.addEventListener("keydown",e=>{
+  if(!editing)return;
+  if(e.key==="Enter")save(editing,{note:$("#ed").value});
+  if(e.key==="Escape"){editing=null;render()}
+});
+$("#q").addEventListener("input",render);
+$("#dt").onclick=()=>{showDone=!showDone;render()};
+load();setInterval(load,5000);
 </script></body></html>"""
 
 

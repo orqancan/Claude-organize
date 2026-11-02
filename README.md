@@ -5,11 +5,21 @@ Claude Code ile bir sürü sohbet ve fork açınca nerede ne yaptığını unutm
 Claude Code bütün sohbetleri `~/.claude/projects/<proje>/<session-id>.jsonl` dosyalarında tutar.
 Bu araç o dosyaları **sadece okur** (hiçbir şeyi değiştirmez) ve sana şunları gösterir:
 
-- Sohbetler **proje klasörüne göre gruplu**, **fork'lar ana sohbetin altında ağaç olarak**
-- Fork'lar, fork'tan sonraki ilk isteğinle adlandırılır ("Deneme: Logo-Animation V4" gibi), böylece kardeşleri ayırt edebilirsin
-- Son çalışma zamanı, git branch, ilk/son istek, Claude'un son cevabı, dokunulan dosyalar
-- Her sohbete kendi **notun** + **durum** etiketi: 🟢 aktif · 🧪 deneme · ⏸️ beklemede · ✅ bitti · 🗑️ çöp
-- Tek tıkla kopyalanan `cd "<klasör>" && claude --resume <id>` komutu
+Ekran sade bir liste — her sohbet tek satır:
+
+```
+WEIHNACHTSFEIER
+ ●  Animationen und Bühnenkonzept  çalışıyor…  📝 sahne ışıkları   ▬▬▬─ %62   12 dk · 14:32
+ ●  02-Key Visual Animation                                       ▬─── %18   Pzt 10:05
+      └ btw: niye takıldı                                          ▬▬── %41   28 Eki
+```
+
+- **●** turuncu = son 1 saatte kullanıldı, yanıp sönüyorsa Claude **şu an çalışıyor**
+- **Fork'lar** ana sohbetin altında girintili
+- **%** = sohbetin hafızasının (context) ne kadar dolduğu; %80'i geçince kırmızı olur, yakında sıkışır demektir
+- **Saat / gün**: bugünse saat, bu haftaysa gün adı, daha eskiyse tarih
+- Satıra **tıkla** → `cd "<klasör>" && claude --resume <id>` kopyalanır, Terminal'e yapıştır
+- **✎** → not yaz veya **✓ bitti** olarak işaretle (bitenler en altta gizli durur)
 
 Notlar `~/.claude-organize/notes.json` dosyasında durur.
 
