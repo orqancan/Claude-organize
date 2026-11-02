@@ -523,6 +523,7 @@ INDEX_HTML = r"""<!doctype html>
 <html lang="tr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Claude Organize</title>
+<link rel="icon" href="__AVATAR__">
 <style>
 :root{--bg:#030a2a;--fg:#eef3ff;--dim:rgba(170,192,255,.58);--line:rgba(120,160,255,.2);--hover:rgba(60,110,255,.18);
 --acc:#8fb4ff;--glow:rgba(70,130,255,.55);--note:#c9dbff;--bar:rgba(255,255,255,.1);--ok:#5d8cff;--warn:#ffc46b;--bad:#ff6b7a;color-scheme:dark}
@@ -532,7 +533,8 @@ body{margin:0;min-height:100vh;color:var(--fg);font:15px/1.4 -apple-system,Blink
 background:radial-gradient(1200px 700px at 25% -10%,#1446d8 0%,rgba(20,70,216,0) 60%),radial-gradient(900px 600px at 100% 30%,#0b2a8a 0%,rgba(11,42,138,0) 65%),linear-gradient(180deg,#05124a 0%,#020617 100%);background-attachment:fixed}
 main{max-width:880px;margin:0 auto;padding:34px 20px 70px}
 .top{display:flex;align-items:center;gap:14px;margin-bottom:14px}
-.top h1{font-size:17px;margin:0;font-weight:600;white-space:nowrap;letter-spacing:.01em;text-shadow:0 0 18px var(--glow)}
+.top h1{display:flex;align-items:center;gap:12px;font-size:17px;margin:0;font-weight:600;white-space:nowrap;letter-spacing:.01em;text-shadow:0 0 18px var(--glow)}
+.av{width:46px;height:46px;border-radius:13px;border:1px solid rgba(200,222,255,.7);box-shadow:0 0 18px rgba(70,130,255,.6),inset 0 0 0 1px rgba(255,255,255,.15)}
 #q{flex:1;min-width:0;font:inherit;color:inherit;background:rgba(30,70,200,.18);border:1px solid var(--line);border-radius:12px;padding:9px 13px;outline:none;box-shadow:inset 0 0 18px rgba(60,110,255,.15)}
 #q:focus{border-color:rgba(190,215,255,.6);box-shadow:inset 0 0 18px rgba(60,110,255,.3),0 0 18px rgba(70,130,255,.35)}
 #q::placeholder{color:var(--dim)}
@@ -579,7 +581,7 @@ background:linear-gradient(155deg,rgba(80,135,255,.65) 0%,rgba(25,65,210,.45) 50
 @media (max-width:560px){.row{grid-template-columns:14px 1fr auto 22px}.ctx{display:none}.when{min-width:0}}
 </style></head><body>
 <main>
-  <div class="top"><h1>🗂 Claude Organize</h1><input type="search" id="q" placeholder="Ara…"></div>
+  <div class="top"><h1><img class="av" src="__AVATAR__" alt=""> Claude Organize</h1><input type="search" id="q" placeholder="Ara…"></div>
   <div class="hint">Satıra tıkla → devam komutu kopyalanır, Terminal'e yapıştır. ✎ not yaz · ✓ bitti</div>
   <div id="out"></div>
   <button class="done-toggle" id="dt"></button>
@@ -663,6 +665,11 @@ $("#q").addEventListener("input",render);
 $("#dt").onclick=()=>{showDone=!showDone;render()};
 load();setInterval(load,5000);
 </script></body></html>"""
+
+
+# Başlıktaki küçük profil görseli (112x112 webp, ~2 KB)
+AVATAR = "data:image/webp;base64,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"
+INDEX_HTML = INDEX_HTML.replace("__AVATAR__", AVATAR)
 
 
 class Handler(BaseHTTPRequestHandler):

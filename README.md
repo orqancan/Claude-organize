@@ -1,5 +1,24 @@
 # Claude Organize
 
+## ⚡ En kolay kurulum: Claude'una yapıştır
+
+Claude Code'u (masaüstü uygulaması ya da Terminal) aç ve aşağıdaki yazıyı olduğu gibi yapıştır. Gerisini Claude kendisi halleder:
+
+```text
+Benim için Claude Organize'ı kur ve aç. Bana bir şey sorma, açıklama da yapma, sadece yap:
+1. git clone https://github.com/orqancan/Claude-organize.git ~/claude-organize
+   (klasör zaten varsa onun yerine: cd ~/claude-organize && git pull)
+2. python3 ~/claude-organize/claude_organize.py install-command
+3. ~/.zshrc içinde yoksa şu satırı ekle: alias co="python3 ~/claude-organize/claude_organize.py"
+4. python3 ~/claude-organize/claude_organize.py serve --no-browser komutunu arka planda başlat
+5. open http://127.0.0.1:8765
+Bitince bana tek cümleyle "Hazır, tarayıcıda açıldı" de.
+```
+
+Daha sonra açmak için Terminal'e sadece `co` yazman yeterli.
+
+---
+
 Claude Code ile bir sürü sohbet ve fork açınca nerede ne yaptığını unutmamak için küçük bir araç.
 
 Claude Code bütün sohbetleri `~/.claude/projects/<proje>/<session-id>.jsonl` dosyalarında tutar.
